@@ -602,16 +602,27 @@ function annivIn(p){
   return a;
 }
 
+/* The day the 90-day wait ends, and the day monthly accrual starts counting
+   in this period — the later of that and the period's own start. */
+function eligDate(){
+  var hire=hireDate();
+  return hire?addDays(hire,90):null;
+}
+function accrualStart(p){
+  var e=eligDate();
+  return (e&&cmp(e,p.start)>0)?e:p.start;
+}
+
 function accrued(p){
   var allot=tierDays(p.years), t=today(), hire=hireDate();
   if(cmp(t,p.start)<0) return 0;
-  if(cmp(t,p.end)>0) return allot;
-  if(isHirePeriod(p)&&hire){
-    var elig=addDays(hire,90);
-    if(cmp(t,elig)<0) return 0;
-    return Math.min(allot,1+monthsBetween(elig,t));
+  var asOf=cmp(t,p.end)>0?p.end:t;   /* a closed year stops at its own end */
+  if(p.years===0&&hire){
+    var elig=eligDate();
+    if(cmp(asOf,elig)<0) return 0;
+    return Math.min(allot,1+monthsBetween(accrualStart(p),asOf));
   }
-  return Math.min(allot,Math.floor(allot*(monthsBetween(p.start,t)+1)/12));
+  return Math.min(allot,Math.floor(allot*(monthsBetween(p.start,asOf)+1)/12));
 }
 
 /* ---------- render ---------- */
@@ -673,12 +684,17 @@ function renderBalance(p){
     msg='This PTO year has not started yet. <b>'+allot+' days</b> open on '+fmt(p.start)+'.';
   }else if(cmp(t,p.end)>0){
     msg='Closed year. <b>'+used+' of '+total+' days</b> used.';
-  }else if(isHirePeriod(p)&&hire){
-    var elig=addDays(hire,90);
-    if(cmp(t,elig)<0){
+    if(acc===0) msg+=' Nothing accrued before the reset.';
+    else if(acc<allot) msg+=' Only '+acc+' had accrued by '+fmt(p.end)+'.';
+  }else if(p.years===0&&hire){
+    var elig=eligDate();
+    if(cmp(elig,p.end)>0){
+      msg='Your 90th day is '+fmt(elig)+', after this year closes, so nothing accrues before the reset.';
+    }else if(cmp(t,elig)<0){
       msg='Accrual starts '+fmt(elig)+', 90 days in. From then it is 1 day a month, up to <b>'+allot+' days</b>.';
     }else{
-      msg='<b>'+acc+' of '+allot+' days</b> accrued so far, 1 a month since '+fmt(elig)+'. You can see the full year here, but only accrued days are earned.';
+      msg='<b>'+acc+' of '+allot+' days</b> accrued so far, 1 a month since '+fmt(accrualStart(p))+
+        '. You can see the full year here, but only accrued days are earned.';
     }
   }else{
     msg='<b>'+acc+' of '+allot+' days</b> accrued so far, pro-rated by month. Resets '+fmt(addDays(p.end,1))+'.';

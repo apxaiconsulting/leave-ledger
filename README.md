@@ -10,7 +10,7 @@ A single-page PTO and paid-holiday tracker. Pure static files: no build step, no
 - One check box per PTO day in your allotment, with an optional date and note on each.
 - The paid-holiday calendar for any year, with the policy's weekend rules applied and the observed date tagged where it moves.
 - Worked a paid holiday instead of taking it? Press **Worked it** on that holiday and it banks as an extra day, added to the PTO year the holiday falls in and usable like any other day. Un-banking it also clears the day if you had already used it.
-- First-year accrual: nothing until day 90, then one day a month up to nine.
+- First-year accrual: nothing until day 90, then one day a month up to nine. The 90-day mark can land in the next calendar year, so the rule follows the 0-year tier rather than the hire year, and a short first stretch shows what actually accrued before its reset.
 
 ## Where the data lives
 
