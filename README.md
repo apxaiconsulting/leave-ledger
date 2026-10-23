@@ -8,6 +8,7 @@ A single-page PTO and paid-holiday tracker. Pure static files: no build step, no
 - Opens a fresh ledger every PTO year and keeps the old ones, so the balance resets on its own.
 - One check box per PTO day in your allotment, with an optional date and note on each.
 - The paid-holiday calendar for any year, with the policy's weekend rules applied and the observed date tagged where it moves.
+- Worked a paid holiday instead of taking it? Press **Worked it** on that holiday and it banks as an extra day, added to the PTO year the holiday falls in and usable like any other day. Un-banking it also clears the day if you had already used it.
 - First-year accrual: nothing until day 90, then one day a month up to nine.
 
 ## Where the data lives

@@ -175,6 +175,19 @@ section{margin-top:18px}
 .row input:focus{border-color:var(--accent);background:var(--surface)}
 .row input::placeholder{color:var(--ink-faint)}
 .row:not(.on){cursor:pointer}
+.row.bank .daynum{flex:0 0 auto;color:var(--gold);margin-right:4px}
+.row.bank.on .daynum{color:var(--gold)}
+.pill{
+  flex:0 0 auto;background:transparent;border:1px solid var(--line-strong);border-radius:999px;
+  padding:4px 10px;font-family:var(--font-mono);font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-faint);cursor:pointer;
+}
+.pill:hover{border-color:var(--gold);color:var(--gold)}
+.pill.on{background:var(--gold-soft);border-color:var(--gold);color:var(--gold)}
+.pill:disabled{opacity:.35;cursor:not-allowed}
+.hrow.worked{background:var(--gold-soft)}
+.hrow.worked .hname{text-decoration:none}
+.tag.bank{background:var(--gold-soft);color:var(--gold)}
 .row .open{
   flex:1 1 auto;text-align:right;font-family:var(--font-mono);font-size:11px;
   letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);
@@ -228,6 +241,10 @@ footer p{margin:0 0 5px}
   .row input[type=date]{flex:1 1 120px}
   .row input[type=text]{flex:1 1 100%;order:5;margin-left:36px}
   .daynum{flex:0 0 46px}
+  .row.bank .daynum{flex:1 1 auto}
+  .hrow{flex-wrap:wrap;row-gap:7px}
+  .hrow .pill{margin-left:37px;order:5}
+  .hrow .hdate{flex:1 1 auto}
 }
 @media (prefers-reduced-motion:no-preference){
   .box,.row,.hrow{transition:background-color .12s ease,border-color .12s ease}
@@ -346,6 +363,7 @@ footer p{margin:0 0 5px}
   <footer>
     <p>First year: 1 day a month after 90 days of employment, up to 9 days.</p>
     <p>Holiday dates follow the policy&rsquo;s weekend rules, so a few land on the business day before or after. Observed shifts are tagged.</p>
+    <p>Worked a paid holiday? Press <b>Worked it</b> and the day banks as an extra PTO day in the year that holiday falls in.</p>
     <p id="savedAt">Saved in this browser.</p>
   </footer>
 </div>
@@ -373,11 +391,26 @@ function load(){
   }catch(e){}
   return false;
 }
+/* What gets written: empty years are dropped, so a backup stays small.
+   The live store keeps them, since open rows hold references into it. */
+function snapshot(){
+  var out={profile:store.profile,periods:{},holidays:{}};
+  Object.keys(store.periods).forEach(function(k){
+    var m=(store.periods[k]||{}).marks||{};
+    if(Object.keys(m).length) out.periods[k]={marks:m};
+  });
+  Object.keys(store.holidays).forEach(function(k){
+    var h=store.holidays[k]||{}, t=h.taken||{}, w=h.worked||{};
+    if(Object.keys(t).length||Object.keys(w).length) out.holidays[k]={taken:t,worked:w};
+  });
+  return out;
+}
+
 var saveTimer=null;
 function writeNow(){
   clearTimeout(saveTimer); saveTimer=null;
   try{
-    localStorage.setItem(KEY,JSON.stringify(store));
+    localStorage.setItem(KEY,JSON.stringify(snapshot()));
     note('Saved '+fmtTime(new Date())+' in this browser.');
   }catch(e){ note('This browser is not saving changes (private window or blocked storage).'); }
 }
@@ -517,9 +550,42 @@ function marksOf(key){
 }
 function takenOf(y){
   var k=String(y);
-  if(!store.holidays[k]) store.holidays[k]={taken:{}};
+  if(!store.holidays[k]) store.holidays[k]={taken:{},worked:{}};
   if(!store.holidays[k].taken) store.holidays[k].taken={};
   return store.holidays[k].taken;
+}
+function workedOf(y){
+  var k=String(y);
+  if(!store.holidays[k]) store.holidays[k]={taken:{},worked:{}};
+  if(!store.holidays[k].worked) store.holidays[k].worked={};
+  return store.holidays[k].worked;
+}
+
+/* A holiday you worked instead of taking off banks an extra day, in
+   whichever PTO year that holiday falls in. */
+function bankedFor(p){
+  var out=[];
+  if(!p) return out;
+  Object.keys(store.holidays).forEach(function(y){
+    if(!/^\d{4}$/.test(y)) return;
+    var w=(store.holidays[y]||{}).worked||{};
+    var ids=Object.keys(w).filter(function(id){return w[id];});
+    if(!ids.length) return;
+    holidaysFor(+y).forEach(function(h){
+      if(!h.date||ids.indexOf(h.id)<0) return;
+      if(cmp(h.date,p.start)<0||cmp(h.date,p.end)>0) return;
+      out.push({key:bankKey(y,h.id),name:h.name,date:h.date});
+    });
+  });
+  out.sort(function(a,b){return cmp(a.date,b.date);});
+  return out;
+}
+function bankKey(y,id){ return 'b'+y+'-'+id; }
+function dropBankMark(key){
+  Object.keys(store.periods).forEach(function(pk){
+    var m=(store.periods[pk]||{}).marks;
+    if(m&&m[key]) delete m[key];
+  });
 }
 
 function accrued(p){
@@ -546,7 +612,7 @@ function render(){
   renderDays(p);
   renderHolidays();
   renderTiers(p);
-  $('backupBox').value=JSON.stringify(store);
+  $('backupBox').value=JSON.stringify(snapshot());
 }
 
 function renderPeriod(p){
@@ -574,21 +640,25 @@ function renderBalance(p){
     $('accrual').textContent='Put your employment start date in Setup to see the tier, the accrual and the reset date.';
     $('barUsed').style.width='0%';$('barEarned').style.width='0%';$('ptoCount').textContent='';return; }
   var allot=tierDays(p.years);
+  var banked=bankedFor(p), bkeys=banked.map(function(b){return b.key;});
+  var total=allot+banked.length;
   var marks=marksOf(p.key);
-  var used=Object.keys(marks).filter(function(k){return +k<=allot;}).length;
-  var acc=accrued(p);
-  $('nTotal').textContent=allot;
+  var used=Object.keys(marks).filter(function(k){
+    return (/^\d+$/.test(k)&&+k<=allot)||bkeys.indexOf(k)>=0;
+  }).length;
+  var acc=Math.min(total,accrued(p)+banked.length);
+  $('nTotal').textContent=total;
   $('nUsed').textContent=used;
-  $('nLeft').textContent=Math.max(0,allot-used);
-  $('barUsed').style.width=(used/allot*100)+'%';
-  $('barEarned').style.width=(Math.max(0,acc-used)/allot*100)+'%';
-  $('ptoCount').textContent=used+' used · '+Math.max(0,allot-used)+' left';
+  $('nLeft').textContent=Math.max(0,total-used);
+  $('barUsed').style.width=(used/total*100)+'%';
+  $('barEarned').style.width=(Math.max(0,acc-used)/total*100)+'%';
+  $('ptoCount').textContent=used+' used · '+Math.max(0,total-used)+' left';
 
   var t=today(), hire=hireDate(), msg;
   if(cmp(t,p.start)<0){
     msg='This PTO year has not started yet. <b>'+allot+' days</b> open on '+fmt(p.start)+'.';
   }else if(cmp(t,p.end)>0){
-    msg='Closed year. <b>'+used+' of '+allot+' days</b> used.';
+    msg='Closed year. <b>'+used+' of '+total+' days</b> used.';
   }else if(p.years===0&&hire){
     var elig=addDays(hire,90);
     if(cmp(t,elig)<0){
@@ -598,6 +668,10 @@ function renderBalance(p){
     }
   }else{
     msg='<b>'+acc+' of '+allot+' days</b> accrued so far, pro-rated by month. Resets '+fmt(addDays(p.end,1))+'.';
+  }
+  if(banked.length){
+    msg+=' Plus <b>'+banked.length+' banked</b> from '+
+      (banked.length===1?'a holiday':banked.length+' holidays')+' you worked.';
   }
   $('accrual').innerHTML=msg;
 }
@@ -614,52 +688,60 @@ function renderDays(p){
   var allot=tierDays(p.years), marks=marksOf(p.key), t=today();
   var frag=document.createDocumentFragment();
   for(var i=1;i<=allot;i++){
-    frag.appendChild(dayRow(i,marks,p,t));
+    frag.appendChild(ledgerRow(String(i),'Day '+i,marks,p,t,false));
   }
+  bankedFor(p).forEach(function(b){
+    frag.appendChild(ledgerRow(b.key,b.name,marks,p,t,true));
+  });
   host.appendChild(frag);
 }
 
-function dayRow(i,marks,p,t){
-  var on=!!marks[String(i)];
+function ledgerRow(key,label,marks,p,t,bank){
+  var on=!!marks[key];
   var row=document.createElement('div');
-  row.className='row'+(on?' on':'');
+  row.className='row'+(on?' on':'')+(bank?' bank':'');
 
   var box=document.createElement('button');
   box.type='button'; box.className='box';
   box.setAttribute('aria-pressed',on?'true':'false');
-  box.setAttribute('aria-label','Day '+i+(on?', used':', not used'));
+  box.setAttribute('aria-label',label+(on?', used':', not used'));
   box.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.2 3.2L13 5"/></svg>';
   box.addEventListener('click',function(){
-    if(marks[String(i)]) delete marks[String(i)];
+    if(marks[key]) delete marks[key];
     else{
       var d=(cmp(t,p.start)>=0&&cmp(t,p.end)<=0)?d2s(t):'';
-      marks[String(i)]={date:d,note:''};
+      marks[key]={date:d,note:''};
     }
     save(); render();
   });
 
   var num=document.createElement('span');
-  num.className='daynum'; num.textContent='Day '+i;
+  num.className='daynum'; num.textContent=label;
 
   row.appendChild(box); row.appendChild(num);
+  if(bank){
+    var tg=document.createElement('span');
+    tg.className='tag bank'; tg.textContent='banked';
+    row.appendChild(tg);
+  }
 
   if(on){
     var date=document.createElement('input');
-    date.type='date'; date.id='d'+p.key+'-'+i;
+    date.type='date'; date.id='d'+p.key+'-'+key;
     date.min=d2s(p.start); date.max=d2s(p.end);
-    date.value=marks[String(i)].date||'';
-    date.setAttribute('aria-label','Date of day '+i);
+    date.value=marks[key].date||'';
+    date.setAttribute('aria-label','Date of '+label);
     date.addEventListener('change',function(){
-      if(marks[String(i)]){ marks[String(i)].date=date.value; save(); }
+      if(marks[key]){ marks[key].date=date.value; save(); }
     });
 
     var note=document.createElement('input');
-    note.type='text'; note.id='n'+p.key+'-'+i;
+    note.type='text'; note.id='n'+p.key+'-'+key;
     note.placeholder='Note (optional)';
-    note.value=marks[String(i)].note||'';
-    note.maxLength=80; note.setAttribute('aria-label','Note for day '+i);
+    note.value=marks[key].note||'';
+    note.maxLength=80; note.setAttribute('aria-label','Note for '+label);
     note.addEventListener('input',function(){
-      if(marks[String(i)]){ marks[String(i)].note=note.value; save(false); }
+      if(marks[key]){ marks[key].note=note.value; save(false); }
     });
 
     row.appendChild(date); row.appendChild(note);
@@ -676,18 +758,19 @@ function dayRow(i,marks,p,t){
 
 function renderHolidays(){
   var y=today().getFullYear()+hOffset;
-  var list=holidaysFor(y), taken=takenOf(y), host=$('holRows');
+  var list=holidaysFor(y), taken=takenOf(y), worked=workedOf(y), host=$('holRows');
   $('hTitle').textContent='Paid holidays '+y;
   var done=list.filter(function(h){return taken[h.id];}).length;
-  $('hCount').textContent=done+' of '+list.length+' checked off';
+  var nb=list.filter(function(h){return worked[h.id];}).length;
+  $('hCount').textContent=done+' of '+list.length+' taken'+(nb?' · '+nb+' banked':'');
   host.textContent='';
   var frag=document.createDocumentFragment();
   var anyShift=false;
   list.forEach(function(h){
     if(h.shifted) anyShift=true;
-    var on=!!taken[h.id];
+    var on=!!taken[h.id], w=!!worked[h.id];
     var row=document.createElement('div');
-    row.className='hrow'+(on?' on':'');
+    row.className='hrow'+(on?' on':'')+(w?' worked':'');
 
     var box=document.createElement('button');
     box.type='button'; box.className='box';
@@ -695,8 +778,12 @@ function renderHolidays(){
     box.setAttribute('aria-label',h.name+(on?', taken':', not taken'));
     box.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.2 3.2L13 5"/></svg>';
     box.addEventListener('click',function(){
-      if(taken[h.id]) delete taken[h.id]; else taken[h.id]=true;
-      save(); renderHolidays();
+      if(taken[h.id]){ delete taken[h.id]; }
+      else{
+        taken[h.id]=true;
+        if(worked[h.id]){ delete worked[h.id]; dropBankMark(bankKey(y,h.id)); }
+      }
+      save(); render();
     });
 
     var name=document.createElement('div');
@@ -707,6 +794,9 @@ function renderHolidays(){
     }
     if(h.id==='birthday'&&h.date){
       var tb=document.createElement('span'); tb.className='tag bday'; tb.textContent='yours'; name.appendChild(tb);
+    }
+    if(w){
+      var tw=document.createElement('span'); tw.className='tag bank'; tw.textContent='banked'; name.appendChild(tw);
     }
     if(h.shifted){
       var em=document.createElement('em'); em.textContent='Falls '+fmtShort(h.actual)+'. '+h.rule+'.'; name.appendChild(em);
@@ -719,8 +809,20 @@ function renderHolidays(){
     if(h.date){ date.textContent=fmtShort(h.date); }
     else{ date.textContent='set in Setup'; }
 
-    row.appendChild(box); row.appendChild(name); row.appendChild(date);
-    if(!h.date){ box.disabled=true; box.style.opacity='.4'; }
+    var bank=document.createElement('button');
+    bank.type='button'; bank.className='pill'+(w?' on':'');
+    bank.textContent=w?'Banked':'Worked it';
+    bank.setAttribute('aria-pressed',w?'true':'false');
+    bank.setAttribute('aria-label',(w?'Banked: ':'Bank ')+h.name+', worked instead of taken');
+    bank.title='Worked this holiday, so bank it as an extra day in that PTO year';
+    bank.addEventListener('click',function(){
+      if(worked[h.id]){ delete worked[h.id]; dropBankMark(bankKey(y,h.id)); }
+      else{ worked[h.id]=true; delete taken[h.id]; }
+      save(); render();
+    });
+
+    row.appendChild(box); row.appendChild(name); row.appendChild(date); row.appendChild(bank);
+    if(!h.date){ box.disabled=true; box.style.opacity='.4'; bank.disabled=true; }
     frag.appendChild(row);
   });
   host.appendChild(frag);
@@ -766,7 +868,7 @@ function bind(){
     pOffset=0; save(); render();
   });
   $('birthday').addEventListener('change',function(){
-    store.profile.birthday=this.value; save(); renderHolidays(); $('backupBox').value=JSON.stringify(store);
+    store.profile.birthday=this.value; save(); renderHolidays(); $('backupBox').value=JSON.stringify(snapshot());
   });
   $('yearMode').addEventListener('change',function(){
     store.profile.yearMode=this.value; pOffset=0; save(); render();

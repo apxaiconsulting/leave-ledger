@@ -1,5 +1,5 @@
 /* Leave Ledger service worker — bump VERSION on every deploy */
-const VERSION = 'leave-ledger-v1';
+const VERSION = 'leave-ledger-v2';
 const ASSETS = [
   './',
   './index.html',
