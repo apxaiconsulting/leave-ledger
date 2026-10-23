@@ -277,8 +277,8 @@ footer p{margin:0 0 5px}
       <label class="field"><span class="label">Birthday · the year is ignored</span><input type="date" id="birthday"></label>
       <label class="field"><span class="label">PTO year runs</span>
         <select id="yearMode">
+          <option value="calendar">January 1 to December 31</option>
           <option value="anniversary">From my start date</option>
-          <option value="calendar">January to December</option>
         </select>
       </label>
     </div>
@@ -374,7 +374,7 @@ footer p{margin:0 0 5px}
 
 /* ---------- storage ---------- */
 var KEY='leaveLedger.v1';
-var store={profile:{hireDate:'',birthday:'',yearMode:'anniversary',sample:true},periods:{},holidays:{}};
+var store={profile:{hireDate:'',birthday:'',yearMode:'calendar',sample:true},periods:{},holidays:{}};
 
 function load(){
   try{
@@ -588,11 +588,25 @@ function dropBankMark(key){
   });
 }
 
+function isHirePeriod(p){
+  var hire=hireDate();
+  return !!(hire&&p&&cmp(hire,p.start)>=0&&cmp(hire,p.end)<=0);
+}
+/* The employment anniversary that lands inside this period, if any. It does
+   not change this year's days — it sets the tier at the next reset. */
+function annivIn(p){
+  var hire=hireDate();
+  if(!hire||isHirePeriod(p)) return null;
+  var a=new Date(p.start.getFullYear(),hire.getMonth(),hire.getDate());
+  if(cmp(a,p.start)<0||cmp(a,p.end)>0) return null;
+  return a;
+}
+
 function accrued(p){
   var allot=tierDays(p.years), t=today(), hire=hireDate();
   if(cmp(t,p.start)<0) return 0;
   if(cmp(t,p.end)>0) return allot;
-  if(p.years===0&&hire){
+  if(isHirePeriod(p)&&hire){
     var elig=addDays(hire,90);
     if(cmp(t,elig)<0) return 0;
     return Math.min(allot,1+monthsBetween(elig,t));
@@ -626,7 +640,7 @@ function renderPeriod(p){
   }
   $('pTitle').textContent=p.label+' · '+tierDays(p.years)+'-day tier';
   $('pRange').textContent=fmt(p.start)+' – '+fmt(p.end);
-  $('pMeta').textContent=p.years===0?'First 12 months':
+  $('pMeta').textContent=p.years===0?'Less than a year in':
     p.years+(p.years===1?' year':' years')+' of employment';
   $('prevP').disabled=(period(pOffset-1)===null)||(p.years===0&&pOffset<=0&&cmp(p.start,hireDate())===0&&period(pOffset-1).key===p.key);
   $('nextP').disabled=false;
@@ -659,15 +673,21 @@ function renderBalance(p){
     msg='This PTO year has not started yet. <b>'+allot+' days</b> open on '+fmt(p.start)+'.';
   }else if(cmp(t,p.end)>0){
     msg='Closed year. <b>'+used+' of '+total+' days</b> used.';
-  }else if(p.years===0&&hire){
+  }else if(isHirePeriod(p)&&hire){
     var elig=addDays(hire,90);
     if(cmp(t,elig)<0){
-      msg='Accrual starts '+fmt(elig)+', 90 days in. From then it is 1 day a month, up to <b>9 days</b> in the first year.';
+      msg='Accrual starts '+fmt(elig)+', 90 days in. From then it is 1 day a month, up to <b>'+allot+' days</b>.';
     }else{
-      msg='<b>'+acc+' of 9 days</b> accrued so far, 1 a month since '+fmt(elig)+'. You can see the full year here, but only accrued days are earned.';
+      msg='<b>'+acc+' of '+allot+' days</b> accrued so far, 1 a month since '+fmt(elig)+'. You can see the full year here, but only accrued days are earned.';
     }
   }else{
     msg='<b>'+acc+' of '+allot+' days</b> accrued so far, pro-rated by month. Resets '+fmt(addDays(p.end,1))+'.';
+  }
+  var a=annivIn(p), nxt=period(pOffset+1);
+  if(a&&nxt&&tierDays(nxt.years)!==allot){
+    var ay=yearsOfService(hireDate(),a);
+    msg+=' You reach '+ay+(ay===1?' year':' years')+' on '+fmt(a)+
+      ', so the next reset opens <b>'+tierDays(nxt.years)+' days</b>.';
   }
   if(banked.length){
     msg+=' Plus <b>'+banked.length+' banked</b> from '+
@@ -756,8 +776,18 @@ function ledgerRow(key,label,marks,p,t,bank){
   return row;
 }
 
+/* On a January reset the holiday list and the PTO year are the same year,
+   so the two sets of arrows move together. */
+function holidayYear(){
+  if(store.profile.yearMode==='calendar'){
+    var p=period(pOffset);
+    if(p) return p.start.getFullYear();
+  }
+  return today().getFullYear()+hOffset;
+}
+
 function renderHolidays(){
-  var y=today().getFullYear()+hOffset;
+  var y=holidayYear();
   var list=holidaysFor(y), taken=takenOf(y), worked=workedOf(y), host=$('holRows');
   $('hTitle').textContent='Paid holidays '+y;
   var done=list.filter(function(h){return taken[h.id];}).length;
@@ -875,8 +905,12 @@ function bind(){
   });
   $('prevP').addEventListener('click',function(){ pOffset--; render(); });
   $('nextP').addEventListener('click',function(){ pOffset++; render(); });
-  $('prevH').addEventListener('click',function(){ hOffset--; renderHolidays(); });
-  $('nextH').addEventListener('click',function(){ hOffset++; renderHolidays(); });
+  $('prevH').addEventListener('click',function(){ stepHolidayYear(-1); });
+  $('nextH').addEventListener('click',function(){ stepHolidayYear(1); });
+  function stepHolidayYear(n){
+    if(store.profile.yearMode==='calendar'){ pOffset+=n; render(); }
+    else{ hOffset+=n; renderHolidays(); }
+  }
   $('clearYear').addEventListener('click',function(){
     var p=period(pOffset); if(!p) return;
     if(this.dataset.armed==='1'){
@@ -888,7 +922,7 @@ function bind(){
     }
   });
   $('clearHols').addEventListener('click',function(){
-    var y=today().getFullYear()+hOffset;
+    var y=holidayYear();
     if(this.dataset.armed==='1'){
       delete store.holidays[String(y)]; this.dataset.armed=''; this.textContent='Clear this holiday year';
       save(); renderHolidays();
@@ -911,7 +945,7 @@ function bind(){
     try{
       var p=JSON.parse($('backupBox').value);
       if(!p||typeof p!=='object') throw 0;
-      store.profile=Object.assign({hireDate:'',birthday:'',yearMode:'anniversary',sample:false},p.profile||{});
+      store.profile=Object.assign({hireDate:'',birthday:'',yearMode:'calendar',sample:false},p.profile||{});
       store.periods=p.periods||{}; store.holidays=p.holidays||{};
       pOffset=0; hOffset=0; save(); fillForm(); render();
       b.textContent='Restored'; setTimeout(function(){b.textContent='Restore from the box';},1800);
@@ -924,7 +958,7 @@ function bind(){
 function fillForm(){
   $('hireDate').value=store.profile.hireDate||'';
   $('birthday').value=store.profile.birthday||'';
-  $('yearMode').value=store.profile.yearMode||'anniversary';
+  $('yearMode').value=store.profile.yearMode||'calendar';
 }
 
 /* ---------- boot ---------- */

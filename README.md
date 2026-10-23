@@ -5,7 +5,8 @@ A single-page PTO and paid-holiday tracker. Pure static files: no build step, no
 ## What it does
 
 - Works out your accrual tier from your employment start date (9 days in the first year, 11 at one year, then one more day a year up to 20 at ten years).
-- Opens a fresh ledger every PTO year and keeps the old ones, so the balance resets on its own.
+- Resets every January 1 by default, opening a fresh ledger at the tier you have reached and keeping the closed years. The balance line says when your anniversary lands and what the next reset opens. Setup can switch the year to run from your start date instead.
+- On a January reset the holiday list and the PTO year are the same year, so either set of arrows moves both.
 - One check box per PTO day in your allotment, with an optional date and note on each.
 - The paid-holiday calendar for any year, with the policy's weekend rules applied and the observed date tagged where it moves.
 - Worked a paid holiday instead of taking it? Press **Worked it** on that holiday and it banks as an extra day, added to the PTO year the holiday falls in and usable like any other day. Un-banking it also clears the day if you had already used it.
