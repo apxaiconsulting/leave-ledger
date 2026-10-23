@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Leave Ledger</title>
+<meta name="description" content="Track PTO accrual, days used and paid holidays for the current leave year.">
+<meta name="theme-color" content="#f3f4f1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111613" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Leave Ledger">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@500&family=Public+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one 760px ledger column — balance band, day rows, holiday roll */
+:root{
+  color-scheme: light;
+  --bg:#f3f4f1; --surface:#fff; --surface-2:#e9ece7; --sunken:#eef1ec;
+  --ink:#19211e; --ink-soft:#5b6a64; --ink-faint:#8a968f;
+  --line:#dbe0da; --line-strong:#c3cbc4;
+  --accent:#116355; --accent-soft:#dbeae4; --accent-ink:#0b4a3f;
+  --gold:#8a6410; --gold-soft:#f4e8cd;
+  --font-display:'Archivo','Helvetica Neue',Arial,sans-serif;
+  --font-body:'Public Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --r:10px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --bg:#111613; --surface:#1a211d; --surface-2:#222a26; --sunken:#151b18;
+    --ink:#e7ece9; --ink-soft:#9aa9a2; --ink-faint:#74827b;
+    --line:#2c3631; --line-strong:#3b4740;
+    --accent:#5fc9ad; --accent-soft:#1d3a33; --accent-ink:#9fe3cd;
+    --gold:#d8ab52; --gold-soft:#372c13;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#111613; --surface:#1a211d; --surface-2:#222a26; --sunken:#151b18;
+  --ink:#e7ece9; --ink-soft:#9aa9a2; --ink-faint:#74827b;
+  --line:#2c3631; --line-strong:#3b4740;
+  --accent:#5fc9ad; --accent-soft:#1d3a33; --accent-ink:#9fe3cd;
+  --gold:#d8ab52; --gold-soft:#372c13;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:var(--font-body); font-size:15px; line-height:1.5;
+  -webkit-text-size-adjust:100%;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:calc(40px + env(safe-area-inset-bottom,0px));
+}
+.wrap{
+  max-width:760px; margin:0 auto;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:22px 0;
+}
+h1,h2,h3{font-family:var(--font-display); margin:0; text-wrap:balance}
+button{font:inherit;color:inherit}
+input,select{font:inherit}
+:is(button,input,select,summary):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* masthead */
+.mast{display:flex;align-items:flex-start;gap:14px;justify-content:space-between;flex-wrap:wrap}
+.mast h1{font-size:23px;font-weight:700;letter-spacing:-.015em}
+.mast p{margin:3px 0 0;color:var(--ink-soft);font-size:13px;max-width:46ch}
+.tool-row{display:flex;gap:6px}
+.ghost{
+  background:transparent;border:1px solid var(--line-strong);border-radius:999px;
+  padding:6px 13px;font-size:12.5px;font-weight:500;cursor:pointer;color:var(--ink-soft);
+}
+.ghost:hover{border-color:var(--accent);color:var(--accent)}
+.ghost[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent-ink)}
+
+.label{
+  font-family:var(--font-mono);font-size:10.5px;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--ink-faint);
+}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r)}
+section{margin-top:18px}
+
+/* banner */
+.notice{
+  display:flex;gap:10px;align-items:flex-start;justify-content:space-between;
+  background:var(--gold-soft);border:1px solid color-mix(in srgb,var(--gold) 35%,transparent);
+  border-radius:var(--r);padding:11px 13px;font-size:13px;color:var(--ink);margin-top:16px;
+}
+.notice b{font-weight:600}
+.notice button{background:none;border:0;cursor:pointer;color:var(--ink-soft);font-size:17px;line-height:1;padding:0 2px}
+
+/* setup */
+.setup{padding:14px 15px 16px}
+.fields{display:flex;flex-wrap:wrap;gap:14px;margin-top:10px}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0;flex:1 1 170px}
+.field input,.field select{
+  background:var(--sunken);border:1px solid var(--line);border-radius:8px;
+  padding:8px 10px;color:var(--ink);width:100%;
+}
+.hint{font-size:12px;color:var(--ink-soft);margin:12px 0 0}
+.danger-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:13px;padding-top:13px;border-top:1px solid var(--line)}
+
+/* period nav */
+.period{display:flex;align-items:center;gap:10px;margin-top:20px}
+.period .nav{
+  background:var(--surface);border:1px solid var(--line);border-radius:8px;
+  width:34px;height:34px;cursor:pointer;flex:0 0 auto;font-size:15px;color:var(--ink-soft);
+}
+.period .nav:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.period .nav:disabled{opacity:.35;cursor:not-allowed}
+.period .mid{flex:1 1 auto;min-width:0;text-align:center}
+.period .mid strong{display:block;font-family:var(--font-display);font-size:16px;font-weight:600}
+.period .mid span{display:block;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-soft)}
+.period .mid .meta{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);margin-top:2px}
+
+/* balance */
+.balance{padding:16px 16px 18px;margin-top:10px}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.tile{background:var(--sunken);border-radius:8px;padding:11px 12px;min-width:0}
+.tile .n{
+  font-family:var(--font-display);font-weight:700;font-size:30px;line-height:1.05;
+  font-variant-numeric:tabular-nums;letter-spacing:-.02em;display:block;
+}
+.tile.hero{background:var(--accent-soft)}
+.tile.hero .n{color:var(--accent-ink)}
+.tile .label{margin-top:4px;display:block}
+.meter{height:9px;border-radius:99px;background:var(--sunken);margin-top:15px;display:flex;overflow:hidden;border:1px solid var(--line)}
+.meter i{display:block;height:100%}
+.meter .used{background:var(--accent)}
+.meter .earned{background:color-mix(in srgb,var(--accent) 26%,transparent)}
+.meterkey{display:flex;gap:14px;flex-wrap:wrap;margin-top:9px;font-size:12px;color:var(--ink-soft)}
+.meterkey i{width:9px;height:9px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:baseline}
+.accrual{margin:13px 0 0;font-size:12.5px;color:var(--ink-soft);border-top:1px solid var(--line);padding-top:11px}
+.accrual b{color:var(--ink);font-weight:600}
+
+/* day rows */
+.sechead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:9px}
+.sechead h2{font-size:15px;font-weight:600;letter-spacing:-.01em}
+.sechead .label{text-align:right}
+.rows{overflow:hidden}
+.row{display:flex;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--line);min-width:0}
+.row:first-child{border-top:0}
+.row.on{background:var(--accent-soft)}
+.box{
+  flex:0 0 auto;width:26px;height:26px;border-radius:7px;cursor:pointer;
+  border:1.5px solid var(--line-strong);background:var(--surface);
+  display:grid;place-items:center;padding:0;
+}
+.row.on .box{background:var(--accent);border-color:var(--accent)}
+.box svg{width:14px;height:14px;opacity:0;stroke:var(--surface);stroke-width:2.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+:root[data-theme="dark"] .box svg,:root:not([data-theme="light"]) .box svg{stroke:#10201b}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]) .box svg{stroke:#fff}}
+.row.on .box svg{opacity:1}
+.daynum{
+  flex:0 0 52px;font-family:var(--font-mono);font-size:12px;color:var(--ink-faint);
+  font-variant-numeric:tabular-nums;
+}
+.row.on .daynum{color:var(--accent-ink)}
+.row input[type=date]{
+  flex:0 0 140px;background:transparent;border:1px solid transparent;border-radius:7px;
+  padding:5px 7px;color:var(--ink);font-family:var(--font-mono);font-size:12.5px;min-width:0;
+}
+.row input[type=text]{
+  flex:1 1 90px;background:transparent;border:1px solid transparent;border-radius:7px;
+  padding:5px 8px;color:var(--ink);min-width:0;font-size:13.5px;
+}
+.row input:hover{border-color:var(--line)}
+.row input:focus{border-color:var(--accent);background:var(--surface)}
+.row input::placeholder{color:var(--ink-faint)}
+.row:not(.on){cursor:pointer}
+.row .open{
+  flex:1 1 auto;text-align:right;font-family:var(--font-mono);font-size:11px;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--ink-faint);
+}
+.row:not(.on):hover .open{color:var(--accent)}
+.row:not(.on):hover .box{border-color:var(--accent)}
+
+/* holidays */
+.hrow{display:flex;align-items:center;gap:11px;padding:9px 12px;border-top:1px solid var(--line);min-width:0}
+.hrow:first-child{border-top:0}
+.hrow .hname{flex:1 1 auto;min-width:0;font-size:14px}
+.hrow .hname em{font-style:normal;display:block;font-size:11.5px;color:var(--ink-faint);margin-top:1px}
+.hrow .hdate{
+  flex:0 0 auto;font-family:var(--font-mono);font-size:12.5px;color:var(--ink-soft);
+  font-variant-numeric:tabular-nums;text-align:right;
+}
+.hrow.on{background:var(--accent-soft)}
+.hrow.on .hname{text-decoration:line-through;text-decoration-color:var(--ink-faint)}
+.tag{
+  display:inline-block;font-family:var(--font-mono);font-size:9.5px;letter-spacing:.07em;
+  text-transform:uppercase;padding:2px 6px;border-radius:999px;margin-left:6px;vertical-align:middle;
+  background:var(--gold-soft);color:var(--gold);
+}
+.tag.bday{background:var(--accent-soft);color:var(--accent-ink)}
+
+/* reference table */
+details{margin-top:18px}
+details summary{
+  cursor:pointer;list-style:none;font-size:13px;color:var(--ink-soft);
+  padding:9px 13px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);
+}
+details summary::-webkit-details-marker{display:none}
+details summary::after{content:' ▾';color:var(--ink-faint)}
+details[open] summary{border-radius:var(--r) var(--r) 0 0;border-bottom:0}
+details[open] summary::after{content:' ▴'}
+.detbody{border:1px solid var(--line);border-top:0;border-radius:0 0 var(--r) var(--r);padding:4px 13px 14px;background:var(--surface)}
+.scroller{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+th,td{text-align:left;padding:6px 10px 6px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-faint);font-weight:500}
+td.n{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+tr.now td{color:var(--accent-ink);font-weight:600}
+tr.now td:first-child::before{content:'▸ ';color:var(--accent)}
+.backup{width:100%;min-height:74px;font-family:var(--font-mono);font-size:11px;background:var(--sunken);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:9px;margin-top:9px;resize:vertical}
+footer{margin:26px 0 0;font-size:11.5px;color:var(--ink-faint);line-height:1.6}
+footer p{margin:0 0 5px}
+@media (max-width:540px){
+  .tiles{grid-template-columns:1fr 1fr}
+  .tile.hero{grid-column:1 / -1}
+  .row{flex-wrap:wrap;row-gap:4px}
+  .row input[type=date]{flex:1 1 120px}
+  .row input[type=text]{flex:1 1 100%;order:5;margin-left:36px}
+  .daynum{flex:0 0 46px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .box,.row,.hrow{transition:background-color .12s ease,border-color .12s ease}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="mast">
+    <div>
+      <h1>Leave Ledger</h1>
+      <p>Your PTO year, the days you have taken, and the paid holidays on the calendar.</p>
+    </div>
+    <div class="tool-row">
+      <button class="ghost" id="themeBtn" type="button">Theme</button>
+      <button class="ghost" id="setupBtn" type="button" aria-pressed="false">Setup</button>
+    </div>
+  </header>
+
+  <div class="notice" id="sampleNote" hidden>
+    <div><b>Example start date.</b> Open Setup and put in the day you started, so the tiers and the reset date are yours.</div>
+    <button type="button" id="sampleX" aria-label="Dismiss">×</button>
+  </div>
+
+  <section class="card setup" id="setup" hidden>
+    <span class="label">Setup</span>
+    <div class="fields">
+      <label class="field"><span class="label">Employment start date</span><input type="date" id="hireDate"></label>
+      <label class="field"><span class="label">Birthday · the year is ignored</span><input type="date" id="birthday"></label>
+      <label class="field"><span class="label">PTO year runs</span>
+        <select id="yearMode">
+          <option value="anniversary">From my start date</option>
+          <option value="calendar">January to December</option>
+        </select>
+      </label>
+    </div>
+    <p class="hint" id="resetHint"></p>
+    <div class="danger-row">
+      <button class="ghost" type="button" id="clearYear">Clear this PTO year</button>
+      <button class="ghost" type="button" id="clearHols">Clear this holiday year</button>
+    </div>
+    <details>
+      <summary>Backup and restore</summary>
+      <div class="detbody">
+        <p class="hint">Everything is saved in this browser only. Copy this text before you switch browsers or devices, then paste it back here and press Restore.</p>
+        <textarea class="backup" id="backupBox" spellcheck="false"></textarea>
+        <div class="danger-row" style="border:0;padding-top:0">
+          <button class="ghost" type="button" id="copyBackup">Copy</button>
+          <button class="ghost" type="button" id="restoreBackup">Restore from the box</button>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <div class="period">
+    <button class="nav" type="button" id="prevP" aria-label="Previous PTO year">‹</button>
+    <div class="mid">
+      <strong id="pTitle">PTO year</strong>
+      <span id="pRange"></span>
+      <span id="pMeta" class="meta"></span>
+    </div>
+    <button class="nav" type="button" id="nextP" aria-label="Next PTO year">›</button>
+  </div>
+
+  <section class="card balance">
+    <div class="tiles">
+      <div class="tile hero"><span class="n" id="nLeft">0</span><span class="label">Days left</span></div>
+      <div class="tile"><span class="n" id="nUsed">0</span><span class="label">Days used</span></div>
+      <div class="tile"><span class="n" id="nTotal">0</span><span class="label">Days this year</span></div>
+    </div>
+    <div class="meter" id="meter">
+      <i class="used" id="barUsed" style="width:0%"></i>
+      <i class="earned" id="barEarned" style="width:0%"></i>
+    </div>
+    <div class="meterkey">
+      <span><i class="used" style="background:var(--accent)"></i>Used</span>
+      <span><i class="earned" style="background:color-mix(in srgb,var(--accent) 26%,transparent)"></i>Accrued, not used</span>
+      <span><i style="background:var(--sunken);border:1px solid var(--line)"></i>Not accrued yet</span>
+    </div>
+    <p class="accrual" id="accrual"></p>
+  </section>
+
+  <section>
+    <div class="sechead">
+      <h2>PTO days</h2>
+      <span class="label" id="ptoCount"></span>
+    </div>
+    <div class="card rows" id="dayRows"></div>
+  </section>
+
+  <section>
+    <div class="period" style="margin-top:0">
+      <button class="nav" type="button" id="prevH" aria-label="Previous holiday year">‹</button>
+      <div class="mid">
+        <strong id="hTitle">Paid holidays</strong>
+        <span id="hCount"></span>
+      </div>
+      <button class="nav" type="button" id="nextH" aria-label="Next holiday year">›</button>
+    </div>
+    <div class="card rows" id="holRows" style="margin-top:10px"></div>
+    <p class="hint" id="holNote"></p>
+  </section>
+
+  <details>
+    <summary>Accrual tiers</summary>
+    <div class="detbody">
+      <p class="hint">Pro-rata accrual for regular full-time employees. Your current tier is marked.</p>
+      <div class="scroller"><table id="tierTable">
+        <thead><tr><th>Years of employment</th><th>PTO time</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </details>
+
+  <footer>
+    <p>First year: 1 day a month after 90 days of employment, up to 9 days.</p>
+    <p>Holiday dates follow the policy&rsquo;s weekend rules, so a few land on the business day before or after. Observed shifts are tagged.</p>
+    <p id="savedAt">Saved in this browser.</p>
+  </footer>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ---------- storage ---------- */
+var KEY='leaveLedger.v1';
+var store={profile:{hireDate:'',birthday:'',yearMode:'anniversary',sample:true},periods:{},holidays:{}};
+
+function load(){
+  try{
+    var raw=localStorage.getItem(KEY);
+    if(raw){
+      var p=JSON.parse(raw);
+      if(p&&typeof p==='object'){
+        store.profile=Object.assign(store.profile,p.profile||{});
+        store.periods=p.periods||{};
+        store.holidays=p.holidays||{};
+        return true;
+      }
+    }
+  }catch(e){}
+  return false;
+}
+var saveTimer=null;
+function writeNow(){
+  clearTimeout(saveTimer); saveTimer=null;
+  try{
+    localStorage.setItem(KEY,JSON.stringify(store));
+    note('Saved '+fmtTime(new Date())+' in this browser.');
+  }catch(e){ note('This browser is not saving changes (private window or blocked storage).'); }
+}
+/* now=true for a tick or a setting, so nothing is lost if the tab closes;
+   typing coalesces into one write per pause */
+function save(now){
+  if(now!==false){ writeNow(); return; }
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(writeNow,250);
+}
+window.addEventListener('pagehide',function(){ if(saveTimer) writeNow(); });
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='hidden'&&saveTimer) writeNow();
+});
+function note(t){ var el=document.getElementById('savedAt'); if(el) el.textContent=t; }
+
+/* ---------- dates ---------- */
+var MON=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var DOW=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function d2s(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+function pad(n){return (n<10?'0':'')+n;}
+function s2d(s){var p=String(s).split('-');return new Date(+p[0],+p[1]-1,+p[2]);}
+function valid(s){return /^\d{4}-\d{2}-\d{2}$/.test(s||'')&&!isNaN(s2d(s).getTime());}
+function addDays(d,n){return new Date(d.getFullYear(),d.getMonth(),d.getDate()+n);}
+function addYears(d,n){return new Date(d.getFullYear()+n,d.getMonth(),d.getDate());}
+function today(){var n=new Date();return new Date(n.getFullYear(),n.getMonth(),n.getDate());}
+function fmt(d){return MON[d.getMonth()].slice(0,3)+' '+d.getDate()+', '+d.getFullYear();}
+function fmtShort(d){return DOW[d.getDay()].slice(0,3)+' '+MON[d.getMonth()].slice(0,3)+' '+d.getDate();}
+function fmtTime(d){var h=d.getHours(),m=pad(d.getMinutes());var ap=h>=12?'pm':'am';h=h%12||12;return h+':'+m+' '+ap;}
+function cmp(a,b){return a.getTime()-b.getTime();}
+function monthsBetween(a,b){
+  var m=(b.getFullYear()-a.getFullYear())*12+(b.getMonth()-a.getMonth());
+  if(b.getDate()<a.getDate()) m--;
+  return Math.max(0,m);
+}
+function yearsOfService(hire,on){
+  var y=on.getFullYear()-hire.getFullYear();
+  if(cmp(on,addYears(hire,y))<0) y--;
+  return Math.max(0,y);
+}
+
+/* ---------- policy ---------- */
+var TIERS=[9,11,12,13,14,15,16,17,18,19,20];
+function tierDays(years){ return TIERS[Math.min(Math.max(years,0),TIERS.length-1)]; }
+
+function nthDow(y,m,dow,n){
+  var first=new Date(y,m,1);
+  var shift=(dow-first.getDay()+7)%7;
+  return new Date(y,m,1+shift+(n-1)*7);
+}
+function lastDow(y,m,dow){
+  var last=new Date(y,m+1,0);
+  var shift=(last.getDay()-dow+7)%7;
+  return new Date(y,m,last.getDate()-shift);
+}
+function easter(y){
+  var a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,
+      f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),
+      h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,
+      l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),
+      mo=Math.floor((h+l-7*m+114)/31),da=((h+l-7*m+114)%31)+1;
+  return new Date(y,mo-1,da);
+}
+function isWeekend(d){return d.getDay()===0||d.getDay()===6;}
+function priorBiz(d){var x=d;while(isWeekend(x)) x=addDays(x,-1);return x;}
+function nextBiz(d){var x=d;while(isWeekend(x)) x=addDays(x,1);return x;}
+function satFriSunMon(d){
+  if(d.getDay()===6) return addDays(d,-1);
+  if(d.getDay()===0) return addDays(d,1);
+  return d;
+}
+
+function holidaysFor(y){
+  var list=[];
+  function add(id,name,actual,observed,rule){
+    list.push({id:id,name:name,actual:actual,date:observed||actual,
+      shifted:!!(observed&&cmp(observed,actual)!==0),rule:rule||''});
+  }
+  var nyd=new Date(y,0,1);
+  add('new-years',"New Year's Day",nyd,satFriSunMon(nyd),'Saturday moves to the Friday before, Sunday to the Monday after');
+  add('mlk','Martin Luther King Day',nthDow(y,0,1,3));
+  add('presidents','Presidents Day',nthDow(y,1,1,3));
+  add('good-friday','Good Friday',addDays(easter(y),-2));
+  add('memorial','Memorial Day',lastDow(y,4,1));
+  add('juneteenth','Juneteenth',new Date(y,5,19));
+  var jul4=new Date(y,6,4);
+  add('independence','Independence Day',jul4,priorBiz(jul4),'Moves to the business day before if it falls on a weekend');
+  var jul5=new Date(y,6,5);
+  add('july-5','5th of July',jul5,nextBiz(jul5),'Moves to the business day after if it falls on a weekend');
+  add('labor','Labor Day',nthDow(y,8,1,1));
+  var tg=nthDow(y,10,4,4);
+  add('thanksgiving','Thanksgiving Day',tg);
+  add('tg-friday','Friday after Thanksgiving',addDays(tg,1));
+  var xeve=new Date(y,11,24);
+  add('christmas-eve','Christmas Eve',xeve,priorBiz(xeve),'Moves to the business day before if it falls on a weekend');
+  var xmas=new Date(y,11,25);
+  add('christmas','Christmas Day',xmas,nextBiz(xmas),'Moves to the business day after if it falls on a weekend');
+  add('nye',"New Year's Eve",new Date(y,11,31));
+  if(valid(store.profile.birthday)){
+    var b=s2d(store.profile.birthday);
+    add('birthday','Your birthday',new Date(y,b.getMonth(),b.getDate()));
+  }else{
+    list.push({id:'birthday',name:'Your birthday',actual:null,date:null,shifted:false,rule:''});
+  }
+  list.sort(function(a,b){
+    if(!a.date) return 1; if(!b.date) return -1;
+    return cmp(a.date,b.date);
+  });
+  return list;
+}
+
+/* ---------- period model ---------- */
+var pOffset=0, hOffset=0;
+
+function hireDate(){ return valid(store.profile.hireDate)?s2d(store.profile.hireDate):null; }
+
+function period(offset){
+  var hire=hireDate(); if(!hire) return null;
+  var t=today();
+  if(store.profile.yearMode==='calendar'){
+    var y=t.getFullYear()+offset;
+    if(y<hire.getFullYear()) y=hire.getFullYear();
+    var s=new Date(y,0,1); if(cmp(s,hire)<0) s=hire;
+    return {start:s,end:new Date(y,11,31),years:yearsOfService(hire,s),key:'c'+y,label:String(y)};
+  }
+  var k=yearsOfService(hire,t)+offset;
+  if(k<0) k=0;
+  var st=addYears(hire,k);
+  return {start:st,end:addDays(addYears(hire,k+1),-1),years:k,key:'a'+d2s(st),
+    label:k===0?'First year':'Year '+(k+1)};
+}
+
+function marksOf(key){
+  if(!store.periods[key]) store.periods[key]={marks:{}};
+  if(!store.periods[key].marks) store.periods[key].marks={};
+  return store.periods[key].marks;
+}
+function takenOf(y){
+  var k=String(y);
+  if(!store.holidays[k]) store.holidays[k]={taken:{}};
+  if(!store.holidays[k].taken) store.holidays[k].taken={};
+  return store.holidays[k].taken;
+}
+
+function accrued(p){
+  var allot=tierDays(p.years), t=today(), hire=hireDate();
+  if(cmp(t,p.start)<0) return 0;
+  if(cmp(t,p.end)>0) return allot;
+  if(p.years===0&&hire){
+    var elig=addDays(hire,90);
+    if(cmp(t,elig)<0) return 0;
+    return Math.min(allot,1+monthsBetween(elig,t));
+  }
+  return Math.min(allot,Math.floor(allot*(monthsBetween(p.start,t)+1)/12));
+}
+
+/* ---------- render ---------- */
+var $=function(id){return document.getElementById(id);};
+
+function render(){
+  var hire=hireDate();
+  $('sampleNote').hidden=!(store.profile.sample&&hire);
+  var p=period(pOffset);
+  renderPeriod(p);
+  renderBalance(p);
+  renderDays(p);
+  renderHolidays();
+  renderTiers(p);
+  $('backupBox').value=JSON.stringify(store);
+}
+
+function renderPeriod(p){
+  if(!p){
+    $('pTitle').textContent='Add your start date';
+    $('pRange').textContent='Setup · employment start date';
+    $('pMeta').textContent='';
+    $('prevP').disabled=$('nextP').disabled=true;
+    $('resetHint').textContent='';
+    return;
+  }
+  $('pTitle').textContent=p.label+' · '+tierDays(p.years)+'-day tier';
+  $('pRange').textContent=fmt(p.start)+' – '+fmt(p.end);
+  $('pMeta').textContent=p.years===0?'First 12 months':
+    p.years+(p.years===1?' year':' years')+' of employment';
+  $('prevP').disabled=(period(pOffset-1)===null)||(p.years===0&&pOffset<=0&&cmp(p.start,hireDate())===0&&period(pOffset-1).key===p.key);
+  $('nextP').disabled=false;
+  var cur=period(0), nxt=period(1);
+  $('resetHint').textContent='The ledger starts fresh every PTO year. The current one ends '+fmt(cur.end)+
+    ', then '+tierDays(nxt.years)+' days open up on '+fmt(nxt.start)+'.';
+}
+
+function renderBalance(p){
+  if(!p){ $('nLeft').textContent='–';$('nUsed').textContent='–';$('nTotal').textContent='–';
+    $('accrual').textContent='Put your employment start date in Setup to see the tier, the accrual and the reset date.';
+    $('barUsed').style.width='0%';$('barEarned').style.width='0%';$('ptoCount').textContent='';return; }
+  var allot=tierDays(p.years);
+  var marks=marksOf(p.key);
+  var used=Object.keys(marks).filter(function(k){return +k<=allot;}).length;
+  var acc=accrued(p);
+  $('nTotal').textContent=allot;
+  $('nUsed').textContent=used;
+  $('nLeft').textContent=Math.max(0,allot-used);
+  $('barUsed').style.width=(used/allot*100)+'%';
+  $('barEarned').style.width=(Math.max(0,acc-used)/allot*100)+'%';
+  $('ptoCount').textContent=used+' used · '+Math.max(0,allot-used)+' left';
+
+  var t=today(), hire=hireDate(), msg;
+  if(cmp(t,p.start)<0){
+    msg='This PTO year has not started yet. <b>'+allot+' days</b> open on '+fmt(p.start)+'.';
+  }else if(cmp(t,p.end)>0){
+    msg='Closed year. <b>'+used+' of '+allot+' days</b> used.';
+  }else if(p.years===0&&hire){
+    var elig=addDays(hire,90);
+    if(cmp(t,elig)<0){
+      msg='Accrual starts '+fmt(elig)+', 90 days in. From then it is 1 day a month, up to <b>9 days</b> in the first year.';
+    }else{
+      msg='<b>'+acc+' of 9 days</b> accrued so far, 1 a month since '+fmt(elig)+'. You can see the full year here, but only accrued days are earned.';
+    }
+  }else{
+    msg='<b>'+acc+' of '+allot+' days</b> accrued so far, pro-rated by month. Resets '+fmt(addDays(p.end,1))+'.';
+  }
+  $('accrual').innerHTML=msg;
+}
+
+function renderDays(p){
+  var host=$('dayRows');
+  host.textContent='';
+  if(!p){
+    var e=document.createElement('div');
+    e.className='row'; e.style.color='var(--ink-soft)'; e.style.padding='16px';
+    e.textContent='Your PTO days appear here once your start date is in.';
+    host.appendChild(e); return;
+  }
+  var allot=tierDays(p.years), marks=marksOf(p.key), t=today();
+  var frag=document.createDocumentFragment();
+  for(var i=1;i<=allot;i++){
+    frag.appendChild(dayRow(i,marks,p,t));
+  }
+  host.appendChild(frag);
+}
+
+function dayRow(i,marks,p,t){
+  var on=!!marks[String(i)];
+  var row=document.createElement('div');
+  row.className='row'+(on?' on':'');
+
+  var box=document.createElement('button');
+  box.type='button'; box.className='box';
+  box.setAttribute('aria-pressed',on?'true':'false');
+  box.setAttribute('aria-label','Day '+i+(on?', used':', not used'));
+  box.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.2 3.2L13 5"/></svg>';
+  box.addEventListener('click',function(){
+    if(marks[String(i)]) delete marks[String(i)];
+    else{
+      var d=(cmp(t,p.start)>=0&&cmp(t,p.end)<=0)?d2s(t):'';
+      marks[String(i)]={date:d,note:''};
+    }
+    save(); render();
+  });
+
+  var num=document.createElement('span');
+  num.className='daynum'; num.textContent='Day '+i;
+
+  row.appendChild(box); row.appendChild(num);
+
+  if(on){
+    var date=document.createElement('input');
+    date.type='date'; date.id='d'+p.key+'-'+i;
+    date.min=d2s(p.start); date.max=d2s(p.end);
+    date.value=marks[String(i)].date||'';
+    date.setAttribute('aria-label','Date of day '+i);
+    date.addEventListener('change',function(){
+      if(marks[String(i)]){ marks[String(i)].date=date.value; save(); }
+    });
+
+    var note=document.createElement('input');
+    note.type='text'; note.id='n'+p.key+'-'+i;
+    note.placeholder='Note (optional)';
+    note.value=marks[String(i)].note||'';
+    note.maxLength=80; note.setAttribute('aria-label','Note for day '+i);
+    note.addEventListener('input',function(){
+      if(marks[String(i)]){ marks[String(i)].note=note.value; save(false); }
+    });
+
+    row.appendChild(date); row.appendChild(note);
+  }else{
+    var open=document.createElement('span');
+    open.className='open'; open.textContent='available';
+    row.appendChild(open);
+    row.addEventListener('click',function(ev){
+      if(ev.target!==box&&!box.contains(ev.target)) box.click();
+    });
+  }
+  return row;
+}
+
+function renderHolidays(){
+  var y=today().getFullYear()+hOffset;
+  var list=holidaysFor(y), taken=takenOf(y), host=$('holRows');
+  $('hTitle').textContent='Paid holidays '+y;
+  var done=list.filter(function(h){return taken[h.id];}).length;
+  $('hCount').textContent=done+' of '+list.length+' checked off';
+  host.textContent='';
+  var frag=document.createDocumentFragment();
+  var anyShift=false;
+  list.forEach(function(h){
+    if(h.shifted) anyShift=true;
+    var on=!!taken[h.id];
+    var row=document.createElement('div');
+    row.className='hrow'+(on?' on':'');
+
+    var box=document.createElement('button');
+    box.type='button'; box.className='box';
+    box.setAttribute('aria-pressed',on?'true':'false');
+    box.setAttribute('aria-label',h.name+(on?', taken':', not taken'));
+    box.innerHTML='<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.2 3.2L13 5"/></svg>';
+    box.addEventListener('click',function(){
+      if(taken[h.id]) delete taken[h.id]; else taken[h.id]=true;
+      save(); renderHolidays();
+    });
+
+    var name=document.createElement('div');
+    name.className='hname';
+    name.appendChild(document.createTextNode(h.name));
+    if(h.shifted){
+      var tg=document.createElement('span'); tg.className='tag'; tg.textContent='observed'; name.appendChild(tg);
+    }
+    if(h.id==='birthday'&&h.date){
+      var tb=document.createElement('span'); tb.className='tag bday'; tb.textContent='yours'; name.appendChild(tb);
+    }
+    if(h.shifted){
+      var em=document.createElement('em'); em.textContent='Falls '+fmtShort(h.actual)+'. '+h.rule+'.'; name.appendChild(em);
+    }else if(h.date&&isWeekend(h.date)){
+      var em2=document.createElement('em'); em2.textContent='Falls on a '+DOW[h.date.getDay()]+'. Check with HR on the observed day.'; name.appendChild(em2);
+    }
+
+    var date=document.createElement('span');
+    date.className='hdate';
+    if(h.date){ date.textContent=fmtShort(h.date); }
+    else{ date.textContent='set in Setup'; }
+
+    row.appendChild(box); row.appendChild(name); row.appendChild(date);
+    if(!h.date){ box.disabled=true; box.style.opacity='.4'; }
+    frag.appendChild(row);
+  });
+  host.appendChild(frag);
+  $('holNote').textContent=anyShift
+    ? 'Tagged holidays moved off a weekend under the policy. Both dates are shown.'
+    : 'No holiday lands on a weekend in '+y+'.';
+}
+
+function renderTiers(p){
+  var body=$('tierTable').querySelector('tbody');
+  body.textContent='';
+  TIERS.forEach(function(days,yrs){
+    var tr=document.createElement('tr');
+    if(p&&p.years===yrs) tr.className='now';
+    var a=document.createElement('td');
+    a.textContent=yrs===0?'0 years (first year)':yrs+(yrs===1?' year':' years');
+    var b=document.createElement('td'); b.className='n';
+    b.textContent=days+' days'+(yrs===0?' — 1 a month after 90 days':'');
+    tr.appendChild(a); tr.appendChild(b); body.appendChild(tr);
+  });
+}
+
+/* ---------- wiring ---------- */
+function bind(){
+  $('setupBtn').addEventListener('click',function(){
+    var s=$('setup'); s.hidden=!s.hidden;
+    this.setAttribute('aria-pressed',s.hidden?'false':'true');
+    if(!s.hidden) $('hireDate').focus();
+  });
+  $('themeBtn').addEventListener('click',function(){
+    var r=document.documentElement;
+    var dark=window.matchMedia('(prefers-color-scheme: dark)').matches;
+    var cur=r.getAttribute('data-theme')||(dark?'dark':'light');
+    var next=cur==='dark'?'light':'dark';
+    r.setAttribute('data-theme',next);
+    try{localStorage.setItem(KEY+'.theme',next);}catch(e){}
+  });
+  $('sampleX').addEventListener('click',function(){
+    store.profile.sample=false; save(); render();
+  });
+  $('hireDate').addEventListener('change',function(){
+    store.profile.hireDate=this.value; store.profile.sample=false;
+    pOffset=0; save(); render();
+  });
+  $('birthday').addEventListener('change',function(){
+    store.profile.birthday=this.value; save(); renderHolidays(); $('backupBox').value=JSON.stringify(store);
+  });
+  $('yearMode').addEventListener('change',function(){
+    store.profile.yearMode=this.value; pOffset=0; save(); render();
+  });
+  $('prevP').addEventListener('click',function(){ pOffset--; render(); });
+  $('nextP').addEventListener('click',function(){ pOffset++; render(); });
+  $('prevH').addEventListener('click',function(){ hOffset--; renderHolidays(); });
+  $('nextH').addEventListener('click',function(){ hOffset++; renderHolidays(); });
+  $('clearYear').addEventListener('click',function(){
+    var p=period(pOffset); if(!p) return;
+    if(this.dataset.armed==='1'){
+      delete store.periods[p.key]; this.dataset.armed=''; this.textContent='Clear this PTO year';
+      save(); render();
+    }else{
+      this.dataset.armed='1'; this.textContent='Tap again to clear '+p.label;
+      var b=this; setTimeout(function(){ b.dataset.armed=''; b.textContent='Clear this PTO year'; },4000);
+    }
+  });
+  $('clearHols').addEventListener('click',function(){
+    var y=today().getFullYear()+hOffset;
+    if(this.dataset.armed==='1'){
+      delete store.holidays[String(y)]; this.dataset.armed=''; this.textContent='Clear this holiday year';
+      save(); renderHolidays();
+    }else{
+      this.dataset.armed='1'; this.textContent='Tap again to clear '+y;
+      var b=this; setTimeout(function(){ b.dataset.armed=''; b.textContent='Clear this holiday year'; },4000);
+    }
+  });
+  $('copyBackup').addEventListener('click',function(){
+    var box=$('backupBox'); box.select();
+    var b=this;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(box.value).then(function(){
+        b.textContent='Copied'; setTimeout(function(){b.textContent='Copy';},1500);
+      },function(){ b.textContent='Select and copy'; });
+    }else{ b.textContent='Select and copy'; }
+  });
+  $('restoreBackup').addEventListener('click',function(){
+    var b=this;
+    try{
+      var p=JSON.parse($('backupBox').value);
+      if(!p||typeof p!=='object') throw 0;
+      store.profile=Object.assign({hireDate:'',birthday:'',yearMode:'anniversary',sample:false},p.profile||{});
+      store.periods=p.periods||{}; store.holidays=p.holidays||{};
+      pOffset=0; hOffset=0; save(); fillForm(); render();
+      b.textContent='Restored'; setTimeout(function(){b.textContent='Restore from the box';},1800);
+    }catch(e){
+      b.textContent='That is not a valid backup'; setTimeout(function(){b.textContent='Restore from the box';},2200);
+    }
+  });
+}
+
+function fillForm(){
+  $('hireDate').value=store.profile.hireDate||'';
+  $('birthday').value=store.profile.birthday||'';
+  $('yearMode').value=store.profile.yearMode||'anniversary';
+}
+
+/* ---------- boot ---------- */
+try{
+  var th=localStorage.getItem(KEY+'.theme');
+  if(th) document.documentElement.setAttribute('data-theme',th);
+}catch(e){}
+
+var had=load();
+if(!had||!valid(store.profile.hireDate)){
+  var t=today();
+  store.profile.hireDate=d2s(new Date(t.getFullYear()-3,t.getMonth(),Math.min(t.getDate(),28)));
+  store.profile.sample=true;
+}
+fillForm();
+bind();
+render();
+note(had?'Saved in this browser.':'Nothing saved yet. Changes save as you go.');
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load',function(){
+    navigator.serviceWorker.register('sw.js').catch(function(){});
+  });
+}
+})();
+</script>
+</body>
+</html>
